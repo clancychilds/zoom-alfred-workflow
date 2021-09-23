@@ -121,11 +121,11 @@ fn new_client() -> Client {
 
 fn extract_zoom_link(txt: String) -> Option<String> {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"(https?://(.*?zoom\.us)/j/([0-9]+))").unwrap();
+        static ref RE: Regex = Regex::new(r"(https?://(.*?zoom\.us)/j/([0-9]+))(?:\?pwd=(\w+))?").unwrap();
     }
 
     let n = RE.captures(txt.as_str()).iter().next().map(|c|
-        format!("zoommtg://{}/join?action=join&confno={}", c.get(2).unwrap().as_str(), c.get(3).unwrap().as_str())
+        format!("zoommtg://{}/join?action=join&confno={}{}", c.get(2).unwrap().as_str(), c.get(3).unwrap().as_str(), c.get(4).map_or("".to_string(), |m| format!("&pwd={}", m.as_str())))
     );
 
     return n;
@@ -133,12 +133,18 @@ fn extract_zoom_link(txt: String) -> Option<String> {
 
 fn extract_password(txt: String) -> Option<String> {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"(Password: (\d+))").unwrap();
+        static ref RE_PASSWORD: Regex = Regex::new(r"([Pp]assword: (\d+))").unwrap();
+        static ref RE_PASSCODE: Regex = Regex::new(r"([Pp]asscode: (\d+))").unwrap();
     }
 
-    let n = RE.captures(txt.as_str()).iter().next().map(|c|
+    let mut n = RE_PASSWORD.captures(txt.as_str()).iter().next().map(|c|
         format!("{}", c.get(1).unwrap().as_str())
     );
+
+    if n == None {
+        *&mut n = RE_PASSCODE.captures(txt.as_str()).iter().next().map(|c|
+            format!("{}", c.get(1).unwrap().as_str()));
+    }
 
     return n;
 }
@@ -245,11 +251,21 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
         let description = e.description.clone();
 
         // Try to get the password in the description, but if there is conference data (googles new conference feature), override it with one found there
-        let mut password = description.and_then(|x| extract_password(x)).or(Some("No password".to_string())).and_then(|b| Some(b.replace("Password: ", "")));
-        if e.conference_data.is_some() {
+        //let mut password = description.and_then(|x| extract_password(x)).or(Some("No password".to_string())).and_then(|b| Some(b.replace("Password: ", "")));
+        let mut password = description.and_then(|x| extract_password(x)).and_then(|b| Some(b.replace("Password: ", ""))).and_then(|b| Some(b.replace("Passcode: ", "")));
+        if e.conference_data.is_some() && password.is_none() {
             if e.conference_data.clone().unwrap().notes.is_some() {
-                password = e.conference_data.clone().unwrap().notes.and_then(|b| Some(b.replace("Password: ", "")))
+                password = e.conference_data.clone().unwrap().notes.and_then(|b| Some(b.replace("Password: ", ""))).and_then(|b| Some(b.replace("Passcode: ", "")));
             }
+            if e.conference_data.clone().unwrap().entry_points.is_some() && password.is_none() {
+                //println!("CONFERENCE_DATA: {:#?}", e.conference_data.clone().unwrap().entry_points.unwrap());
+                password = e.conference_data.clone().into_iter().flat_map(|c|
+                    c.entry_points.into_iter()
+                        .flat_map(|e| e.into_iter()))
+                    .find_map(|e| e.passcode);
+                //password = e.conference_data.clone().unwrap().entry_points.unwrap().pop().unwrap().passcode.and_then(|b| Some(b.replace("Password: ", "")))
+            }
+            //println!("PASSCODE: {}", password.clone().unwrap_or_default());
         }
 
         let meeting_code: Option<String> = e.conference_data.into_iter().flat_map(|c|
@@ -268,7 +284,7 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
             let today_or_tomorrow = if start.unwrap().day() == Utc::today().day() { "Today" } else { "Tomorrow" };
             let item = alfred::ItemBuilder::new(format!("{} - {} at {}", summary, today_or_tomorrow, start.unwrap().time().format("%H:%M")))
                 .subtitle(creator.unwrap())
-                .arg(format!("{},{}", zoom.unwrap(),password.unwrap()))
+                .arg(format!("{},{}", zoom.unwrap(),password.unwrap_or_default()))
                 .into_item();
             items.push(item);
         }
