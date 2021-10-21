@@ -254,16 +254,16 @@ fn main_flow(secret: ConsoleApplicationSecret, token_file: &String, search: Stri
         //let mut password = description.and_then(|x| extract_password(x)).or(Some("No password".to_string())).and_then(|b| Some(b.replace("Password: ", "")));
         let mut password = description.and_then(|x| extract_password(x)).and_then(|b| Some(b.replace("Password: ", ""))).and_then(|b| Some(b.replace("Passcode: ", "")));
         if e.conference_data.is_some() && password.is_none() {
-            if e.conference_data.clone().unwrap().notes.is_some() {
-                password = e.conference_data.clone().unwrap().notes.and_then(|b| Some(b.replace("Password: ", ""))).and_then(|b| Some(b.replace("Passcode: ", "")));
-            }
-            if e.conference_data.clone().unwrap().entry_points.is_some() && password.is_none() {
-                //println!("CONFERENCE_DATA: {:#?}", e.conference_data.clone().unwrap().entry_points.unwrap());
+            //println!("CONFERENCE_DATA: {:#?}", e.conference_data.clone().unwrap());
+            if e.conference_data.clone().unwrap().entry_points.is_some() {
                 password = e.conference_data.clone().into_iter().flat_map(|c|
                     c.entry_points.into_iter()
                         .flat_map(|e| e.into_iter()))
                     .find_map(|e| e.passcode);
                 //password = e.conference_data.clone().unwrap().entry_points.unwrap().pop().unwrap().passcode.and_then(|b| Some(b.replace("Password: ", "")))
+            }
+            if e.conference_data.clone().unwrap().notes.is_some() && password.is_none() {
+                password = e.conference_data.clone().unwrap().notes.and_then(|x| extract_password(x)).and_then(|b| Some(b.replace("Password: ", ""))).and_then(|b| Some(b.replace("Passcode: ", "")));
             }
             //println!("PASSCODE: {}", password.clone().unwrap_or_default());
         }
